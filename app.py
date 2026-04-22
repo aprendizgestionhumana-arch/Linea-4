@@ -252,6 +252,26 @@ def get_gspread_client():
     return gspread.authorize(credentials)
 
 
+def obtener_master_sheet_url() -> str:
+    secrets_dict = st.secrets.to_dict()
+
+    master_url = secrets_dict.get("MASTER_SHEET_URL")
+
+    # fallback por si accidentalmente quedó dentro del bloque gcp_service_account
+    if not master_url and "gcp_service_account" in secrets_dict:
+        gcp_block = secrets_dict.get("gcp_service_account", {})
+        if isinstance(gcp_block, dict):
+            master_url = gcp_block.get("MASTER_SHEET_URL")
+
+    if not master_url:
+        raise KeyError(
+            f'No encontré "MASTER_SHEET_URL" en Secrets. '
+            f'Claves disponibles: {list(secrets_dict.keys())}'
+        )
+
+    return master_url
+
+
 def leer_google_sheet(url: str, worksheet_name: str) -> pd.DataFrame:
     gc = get_gspread_client()
     sh = gc.open_by_url(url)
@@ -269,17 +289,9 @@ def leer_google_sheet(url: str, worksheet_name: str) -> pd.DataFrame:
 
 
 def cargar_bases_maestras() -> Tuple[pd.DataFrame, pd.DataFrame]:
-    secrets_dict = st.secrets.to_dict()
-
-    if "MASTER_SHEET_URL" not in secrets_dict:
-        raise KeyError(
-            'No encontré "MASTER_SHEET_URL" en Secrets.'
-        )
-
-    master_url = secrets_dict["MASTER_SHEET_URL"]
+    master_url = obtener_master_sheet_url()
     df_noel = leer_google_sheet(master_url, NOEL_SHEET_NAME)
     df_datalake = leer_google_sheet(master_url, DATALAKE_SHEET_NAME)
-
     return df_noel, df_datalake
 
 
@@ -807,6 +819,30 @@ def construir_excel(registros: List[dict]) -> bytes:
     wb.save(output)
     output.seek(0)
     return output.getvalue()
+
+
+# =========================
+# DIAGNÓSTICO
+# =========================
+with st.expander("Diagnóstico", expanded=False):
+    try:
+        secrets_dict = st.secrets.to_dict()
+        st.write("Claves visibles en secrets:", list(secrets_dict.keys()))
+
+        if "gcp_service_account" in secrets_dict and isinstance(secrets_dict["gcp_service_account"], dict):
+            st.write(
+                "Claves dentro de gcp_service_account:",
+                list(secrets_dict["gcp_service_account"].keys())
+            )
+
+        if st.button("Probar conexión con Google Sheets"):
+            master_url = obtener_master_sheet_url()
+            gc = get_gspread_client()
+            sh = gc.open_by_url(master_url)
+            hojas = [ws.title for ws in sh.worksheets()]
+            st.success(f"Conexión exitosa. Hojas encontradas: {hojas}")
+    except Exception as e:
+        st.error(f"Diagnóstico: {e}")
 
 
 # =========================
