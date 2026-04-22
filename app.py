@@ -1,4 +1,3 @@
-import io
 import re
 import unicodedata
 from datetime import datetime
@@ -8,10 +7,6 @@ import gspread
 import pandas as pd
 import streamlit as st
 from google.oauth2.service_account import Credentials
-from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill
-from openpyxl.utils import get_column_letter
-from openpyxl.worksheet.filters import AutoFilter
 
 
 # =========================
@@ -26,8 +21,8 @@ MONTH_MAP = ["ENE", "FEB", "MAR", "ABR", "MAY", "JUN",
              "JUL", "AGO", "SEP", "OCT", "NOV", "DIC"]
 
 SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets.readonly",
-    "https://www.googleapis.com/auth/drive.readonly",
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
 ]
 
 
@@ -184,7 +179,7 @@ def obtener_columnas_noel(headers: List[str]) -> dict:
         "empresa": buscar_columna(headers, ["nombre de la empresa de acuerdo al nit", "empresa"]),
         "cedula": buscar_columna(headers, ["cedula", "cédula"]),
         "gerencia": buscar_columna_opcional(headers, ["gerencia"]),
-        "nombre": 4,  # Columna E
+        "nombre": 4,  # E
     }
 
 
@@ -194,9 +189,9 @@ def obtener_columnas_datalake(headers: List[str]) -> dict:
         "cedula": buscar_columna(headers, ["cedula", "cédula"]),
         "descripcion_gerencia": buscar_columna_opcional(headers, ["descripcion gerencia", "descripción gerencia", "gerencia"]),
         "nombre_jefe": buscar_columna_opcional(headers, ["nombre jefe", "jefe"]),
-        "nombre": 6,      # Columna G
-        "apellido1": 7,   # Columna H
-        "apellido2": 8,   # Columna I
+        "nombre": 6,      # G
+        "apellido1": 7,   # H
+        "apellido2": 8,   # I
     }
 
 
@@ -242,6 +237,14 @@ def es_empresa_noel(empresa: str) -> bool:
     }
 
 
+def obtener_mes_desde_nombre_archivo(nombre_archivo: str) -> str:
+    nombre = normalizar_header(nombre_archivo).upper()
+    for mes in MONTH_MAP:
+        if mes in nombre:
+            return mes
+    return datetime.now().strftime("%b").upper()[:3]
+
+
 # =========================
 # GOOGLE SHEETS
 # =========================
@@ -277,6 +280,11 @@ def obtener_master_sheet_url() -> str:
         )
 
     return master_url
+
+
+def open_master_spreadsheet():
+    gc = get_gspread_client()
+    return gc.open_by_url(obtener_master_sheet_url())
 
 
 def leer_google_sheet(url: str, worksheet_name: str) -> pd.DataFrame:
@@ -362,7 +370,7 @@ def construir_indice_datalake(df: pd.DataFrame) -> Dict[str, dict]:
 
 
 # =========================
-# RESÚMENES
+# RESÚMENES Y MÉTRICAS
 # =========================
 def construir_top_usuarios(registros: List[dict]) -> List[List]:
     mapa = {}
@@ -500,9 +508,6 @@ def construir_sin_cruce(registros: List[dict]) -> List[List]:
     ]
 
 
-# =========================
-# MÉTRICAS
-# =========================
 def construir_metricas_desde_archivo(df_reservas: pd.DataFrame, col: dict) -> dict:
     rows = df_reservas.fillna("").to_dict("records")
 
@@ -574,7 +579,6 @@ def procesar_reservas(df_reservas: pd.DataFrame, df_noel: pd.DataFrame, df_datal
         empresa = valor_texto(cruce.get("empresa"))
         gerencia = valor_texto(cruce.get("gerencia"))
         jefe = valor_texto(cruce.get("jefe"))
-        fuente_cruce = valor_texto(cruce.get("fuenteCruce"))
         nombre_completo = valor_texto(cruce.get("nombreCompleto"))
 
         if es_empresa_noel(empresa) and cruce_datalake:
@@ -603,13 +607,11 @@ def procesar_reservas(df_reservas: pd.DataFrame, df_noel: pd.DataFrame, df_datal
             "empresa": empresa,
             "gerencia": gerencia,
             "jefe": jefe,
-            "fuenteCruce": fuente_cruce,
             "encontradoCruce": bool(cruce.get("encontrado", False)),
         })
 
     resultado = {
         "total": len(registros),
-        "personasUnicasNoConsumieron": contar_personas_unicas(registros),
         **metricas,
     }
 
@@ -617,7 +619,7 @@ def procesar_reservas(df_reservas: pd.DataFrame, df_noel: pd.DataFrame, df_datal
 
 
 # =========================
-# DATAFRAMES DE SALIDA
+# DATAFRAMES Y GUARDADO
 # =========================
 def df_usuarios(registros: List[dict]) -> pd.DataFrame:
     return pd.DataFrame(
@@ -626,136 +628,18 @@ def df_usuarios(registros: List[dict]) -> pd.DataFrame:
     )
 
 
-def df_detalle(registros: List[dict]) -> pd.DataFrame:
-    return pd.DataFrame([{
-        "Fecha": r["fecha"],
-        "Hora": r["hora"],
-        "Numero": r["numero"],
-        "Menu": r["menu"],
-        "Usuario": r["usuario"],
-        "Correo electrónico": r["correo"],
-        "CC / Nit": r["cedula"],
-        "Empresa": r["empresa"],
-        "Gerencia": r["gerencia"],
-        "Jefe": r["jefe"],
-        "Fuente cruce": r["fuenteCruce"],
-        "Matricula": r["matricula"],
-        "Extensión": r["extension"],
-        "Área reserva": r["areaReserva"],
-        "Punto de venta": r["puntoVenta"],
-        "Lugar de entrega": r["lugarEntrega"],
-        "Status del pedido": r["statusPedido"],
-    } for r in registros])
+def guardar_informe_en_bd(registros: List[dict], nombre_archivo: str) -> str:
+    sh = open_master_spreadsheet()
 
+    mes = obtener_mes_desde_nombre_archivo(nombre_archivo)
+    nombre_hoja = limpiar_nombre_hoja(f"INF_{mes}")
 
-# =========================
-# EXCEL
-# =========================
-FILL_BLUE = PatternFill(fill_type="solid", fgColor="D9EAF7")
-FILL_DARK = PatternFill(fill_type="solid", fgColor="1F4E78")
-FILL_SECTION = PatternFill(fill_type="solid", fgColor="EAF2F8")
-FILL_HEADER = PatternFill(fill_type="solid", fgColor="F4F6F6")
-FONT_BOLD = Font(bold=True)
-FONT_TITLE = Font(bold=True, size=14, color="FFFFFF")
-
-
-def auto_fit_ws(ws):
-    for col_cells in ws.columns:
-        max_length = 0
-        col_letter = get_column_letter(col_cells[0].column)
-        for cell in col_cells:
-            try:
-                value = "" if cell.value is None else str(cell.value)
-                max_length = max(max_length, len(value))
-            except Exception:
-                pass
-        ws.column_dimensions[col_letter].width = min(max(max_length + 2, 12), 45)
-
-
-def formatear_hoja_base_excel(ws, total_columns: int):
-    ws.freeze_panes = "A2"
-    for cell in ws[1]:
-        cell.font = FONT_BOLD
-        cell.fill = FILL_BLUE
-
-    last_row = max(ws.max_row, 1)
-    ws.auto_filter = AutoFilter(ref=f"A1:{get_column_letter(total_columns)}{last_row}")
-    auto_fit_ws(ws)
-
-
-def formatear_resumen_excel(ws):
-    for cell in ws["1:1"]:
-        if cell.column <= 2 or cell.column >= 4:
-            cell.font = FONT_BOLD
-            cell.fill = FILL_BLUE
-
-    for cell in ws["2:2"]:
-        if cell.column >= 4:
-            cell.font = FONT_BOLD
-            cell.fill = FILL_BLUE
-
-    ws.freeze_panes = "A2"
-    auto_fit_ws(ws)
-
-
-def escribir_tabla_resumen_excel(ws, start_row: int, titulo: str, headers: List[str], values: List[List]) -> int:
-    ws.cell(start_row, 1, titulo)
-    for j, h in enumerate(headers, start=1):
-        ws.cell(start_row + 1, j, h)
-
-    if values:
-        for i, row in enumerate(values, start=start_row + 2):
-            for j, val in enumerate(row, start=1):
-                ws.cell(i, j, val)
-        return start_row + 2 + len(values)
-
-    ws.cell(start_row + 2, 1, "Sin datos")
-    return start_row + 3
-
-
-def construir_excel(registros: List[dict]) -> bytes:
-    wb = Workbook()
-
-    ws_detalle = wb.active
-    ws_detalle.title = DETAIL_SHEET_NAME
-
-    headers_detalle = [
-        "Fecha", "Hora", "Numero", "Menu", "Usuario", "Correo electrónico",
-        "CC / Nit", "Empresa", "Gerencia", "Jefe", "Fuente cruce",
-        "Matricula", "Extensión", "Área reserva", "Punto de venta",
-        "Lugar de entrega", "Status del pedido"
-    ]
-    ws_detalle.append(headers_detalle)
-
-    for r in registros:
-        ws_detalle.append([
-            r["fecha"], r["hora"], r["numero"], r["menu"], r["usuario"], r["correo"],
-            r["cedula"], r["empresa"], r["gerencia"], r["jefe"], r["fuenteCruce"],
-            r["matricula"], r["extension"], r["areaReserva"], r["puntoVenta"],
-            r["lugarEntrega"], r["statusPedido"]
-        ])
-
-    formatear_hoja_base_excel(ws_detalle, len(headers_detalle))
-
-    ws_resumen = wb.create_sheet(SUMMARY_SHEET_NAME)
-    ws_resumen["A1"] = "Indicador"
-    ws_resumen["B1"] = "Valor"
-    ws_resumen["A2"] = "Total no consumieron"
-    ws_resumen["B2"] = len(registros)
-    ws_resumen["A3"] = "Personas únicas"
-    ws_resumen["B3"] = contar_personas_unicas(registros)
-
-    ws_resumen["D1"] = "Top usuarios"
-    resumen_top_headers = ["Usuario", "CC / Nit", "Empresa", "Cantidad"]
-    for j, h in enumerate(resumen_top_headers, start=4):
-        ws_resumen.cell(2, j, h)
-
-    top_usuarios = construir_top_usuarios(registros)
-    for i, row in enumerate(top_usuarios, start=3):
-        for j, val in enumerate(row, start=4):
-            ws_resumen.cell(i, j, val)
-
-    formatear_resumen_excel(ws_resumen)
+    existentes = [ws.title for ws in sh.worksheets()]
+    if nombre_hoja in existentes:
+        ws = sh.worksheet(nombre_hoja)
+        ws.clear()
+    else:
+        ws = sh.add_worksheet(title=nombre_hoja, rows=2000, cols=20)
 
     fecha_base = None
     for r in registros:
@@ -767,9 +651,6 @@ def construir_excel(registros: List[dict]) -> bytes:
         fecha_base = datetime.now()
 
     periodo = obtener_periodo_desde_fecha(fecha_base)
-    mes = periodo.split("_")[2]
-    nombre_informe = limpiar_nombre_hoja(f"INF_{mes}")
-    ws_inf = wb.create_sheet(nombre_informe)
 
     total = len(registros)
     personas_unicas = contar_personas_unicas(registros)
@@ -777,109 +658,71 @@ def construir_excel(registros: List[dict]) -> bytes:
     gerencias_unicas = contar_unicos([r["gerencia"] for r in registros])
     jefes_unicos = contar_unicos([r["jefe"] for r in registros])
 
-    ws_inf["A1"] = f"INFORME NO CONSUMIERON - {periodo}"
-    ws_inf.merge_cells("A1:G1")
-    ws_inf["A1"].font = FONT_TITLE
-    ws_inf["A1"].fill = FILL_DARK
+    bloques = []
 
-    ws_inf["F3"] = "Generado el"
-    ws_inf["G3"] = datetime.now()
+    bloques.append([f"INFORME NO CONSUMIERON - {periodo}"])
+    bloques.append([])
+    bloques.append(["Generado el", datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
+    bloques.append([])
+    bloques.append(["KPI", "Valor"])
+    bloques.append(["Total no consumieron", total])
+    bloques.append(["Personas únicas", personas_unicas])
+    bloques.append(["Empresas únicas", empresas_unicas])
+    bloques.append(["Gerencias únicas", gerencias_unicas])
+    bloques.append(["Jefes únicos", jefes_unicos])
+    bloques.append([])
 
-    ws_inf["A5"] = "KPI"
-    ws_inf["B5"] = "Valor"
-    ws_inf["A6"] = "Total no consumieron"
-    ws_inf["B6"] = total
-    ws_inf["A7"] = "Personas únicas"
-    ws_inf["B7"] = personas_unicas
-    ws_inf["A8"] = "Empresas únicas"
-    ws_inf["B8"] = empresas_unicas
-    ws_inf["A9"] = "Gerencias únicas"
-    ws_inf["B9"] = gerencias_unicas
-    ws_inf["A10"] = "Jefes únicos"
-    ws_inf["B10"] = jefes_unicos
+    bloques.append(["Resumen por empresa"])
+    bloques.append(["Empresa", "Reservas no consumidas", "Personas únicas", "Gerencias"])
+    bloques.extend(resumir_por_empresa(registros) or [["Sin datos"]])
+    bloques.append([])
 
-    for cell in ws_inf["5:5"]:
-        if cell.column <= 2:
-            cell.font = FONT_BOLD
-            cell.fill = FILL_BLUE
+    bloques.append(["Resumen por gerencia"])
+    bloques.append(["Gerencia", "Reservas no consumidas", "Personas únicas", "Empresas"])
+    bloques.extend(resumir_por_gerencia(registros) or [["Sin datos"]])
+    bloques.append([])
 
-    row = 13
+    bloques.append(["Resumen por jefe"])
+    bloques.append(["Jefe", "Reservas no consumidas", "Personas únicas", "Empresas"])
+    bloques.extend(resumir_por_jefe(registros) or [["Sin datos"]])
+    bloques.append([])
 
-    row = escribir_tabla_resumen_excel(
-        ws_inf, row,
-        "Resumen por empresa",
-        ["Empresa", "Reservas no consumidas", "Personas únicas", "Gerencias"],
-        resumir_por_empresa(registros)
-    )
+    bloques.append(["Top personas reincidentes"])
+    bloques.append(["Usuario", "CC / Nit", "Empresa", "Gerencia", "Cantidad"])
+    bloques.extend(construir_top_usuarios_detallado(registros) or [["Sin datos"]])
+    bloques.append([])
 
-    row += 2
-    row = escribir_tabla_resumen_excel(
-        ws_inf, row,
-        "Resumen por gerencia",
-        ["Gerencia", "Reservas no consumidas", "Personas únicas", "Empresas"],
-        resumir_por_gerencia(registros)
-    )
+    bloques.append(["Sin cruce"])
+    bloques.append(["Usuario", "CC / Nit", "Fecha", "Área reserva"])
+    bloques.extend(construir_sin_cruce(registros) or [["Sin datos"]])
+    bloques.append([])
 
-    row += 2
-    row = escribir_tabla_resumen_excel(
-        ws_inf, row,
-        "Resumen por jefe",
-        ["Jefe", "Reservas no consumidas", "Personas únicas", "Empresas"],
-        resumir_por_jefe(registros)
-    )
-
-    row += 2
-    row = escribir_tabla_resumen_excel(
-        ws_inf, row,
-        "Top personas reincidentes",
-        ["Usuario", "CC / Nit", "Empresa", "Gerencia", "Cantidad"],
-        construir_top_usuarios_detallado(registros)
-    )
-
-    row += 2
-    row = escribir_tabla_resumen_excel(
-        ws_inf, row,
-        "Sin cruce",
-        ["Usuario", "CC / Nit", "Fecha", "Área reserva"],
-        construir_sin_cruce(registros)
-    )
-
-    row += 2
-    row = escribir_tabla_resumen_excel(
-        ws_inf, row,
-        "Detalle completo",
+    bloques.append(["Detalle completo"])
+    bloques.append([
+        "Fecha", "Hora", "Numero", "Usuario", "CC / Nit", "Empresa",
+        "Gerencia", "Jefe", "Área reserva", "Menu", "Status del pedido"
+    ])
+    detalle_rows = [
         [
-            "Fecha", "Hora", "Numero", "Usuario", "CC / Nit", "Empresa",
-            "Gerencia", "Jefe", "Área reserva", "Menu", "Fuente cruce",
-            "Status del pedido"
-        ],
-        [
-            [
-                r["fecha"], r["hora"], r["numero"], r["usuario"], r["cedula"],
-                r["empresa"], r["gerencia"], r["jefe"], r["areaReserva"],
-                r["menu"], r["fuenteCruce"], r["statusPedido"]
-            ]
-            for r in registros
+            r["fecha"], r["hora"], r["numero"], r["usuario"], r["cedula"],
+            r["empresa"], r["gerencia"], r["jefe"], r["areaReserva"],
+            r["menu"], r["statusPedido"]
         ]
-    )
+        for r in registros
+    ]
+    bloques.extend(detalle_rows or [["Sin datos"]])
 
-    for r in range(13, ws_inf.max_row + 1):
-        titulo = valor_texto(ws_inf.cell(r, 1).value)
-        siguiente = ws_inf.cell(r + 1, 1).value if r + 1 <= ws_inf.max_row else None
-        if titulo and siguiente:
-            for c in range(1, ws_inf.max_column + 1):
-                ws_inf.cell(r, c).font = FONT_BOLD
-                ws_inf.cell(r, c).fill = FILL_SECTION
-                ws_inf.cell(r + 1, c).font = FONT_BOLD
-                ws_inf.cell(r + 1, c).fill = FILL_HEADER
+    max_cols = max(len(r) for r in bloques if r)
+    valores = [r + [""] * (max_cols - len(r)) for r in bloques]
 
-    ws_inf.freeze_panes = "A5"
-    auto_fit_ws(ws_inf)
+    ws.update("A1", valores)
 
-    output = io.BytesIO()
-    wb.save(output)
-    output.seek(0)
-    return output.getvalue()
+    try:
+        ws.freeze(rows=4)
+    except Exception:
+        pass
+
+    return nombre_hoja
 
 
 # =========================
@@ -903,24 +746,17 @@ if uploaded_file:
 
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Total reservas", resultado["totalReservas"])
-        c2.metric("Personas consumieron", resultado["personasConsumieron"])
-        c3.metric("Personas no consumieron", resultado["personasNoConsumieron"])
+        c2.metric("Consumieron", resultado["personasConsumieron"])
+        c3.metric("No consumieron", resultado["personasNoConsumieron"])
         c4.metric("Personas únicas", resultado["personasUnicas"])
 
         st.subheader("USUARIOS")
         st.dataframe(usuarios, use_container_width=True, height=450)
 
-        excel_bytes = construir_excel(registros)
-        nombre_salida = f"resultado_no_consumieron_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-
-        st.download_button(
-            "Descargar Excel resultado",
-            data=excel_bytes,
-            file_name=nombre_salida,
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-
-        st.success("Proceso completado correctamente.")
+        if st.button("Guardar informe en la BD", type="primary"):
+            with st.spinner("Guardando informe en Google Sheets..."):
+                nombre_hoja = guardar_informe_en_bd(registros, uploaded_file.name)
+            st.success(f'Informe guardado en la hoja "{nombre_hoja}".')
 
     except Exception as e:
         st.error(f"Error: {e}")
