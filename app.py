@@ -248,7 +248,6 @@ def obtener_mes_desde_nombre_archivo(nombre_archivo: str) -> str:
 # =========================
 # GOOGLE SHEETS
 # =========================
-@st.cache_resource(show_spinner=False)
 def get_gspread_client():
     secrets_dict = st.secrets.to_dict()
 
