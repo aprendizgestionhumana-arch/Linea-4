@@ -9,7 +9,7 @@ import pandas as pd
 import streamlit as st
 from google.oauth2.service_account import Credentials
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Color
+from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.filters import AutoFilter
 
@@ -37,6 +37,12 @@ SCOPES = [
 st.set_page_config(page_title="Reservas - No consumieron", layout="wide")
 st.title("Reservas - No consumieron")
 st.caption("Sube el archivo de reservas y la app cruzará la información con Noel y Datalake desde Google Sheets.")
+
+with st.expander("Ayuda de configuración", expanded=False):
+    st.info(
+        "La configuración real se carga desde Settings > Secrets en Streamlit Cloud. "
+        "La app espera 'gcp_service_account' y 'MASTER_SHEET_URL'."
+    )
 
 
 # =========================
@@ -71,6 +77,7 @@ def limpiar_nombre_hoja(nombre: str) -> str:
 def parse_fecha_flexible(valor) -> Optional[datetime]:
     if isinstance(valor, datetime):
         return valor
+
     if hasattr(valor, "to_pydatetime"):
         try:
             return valor.to_pydatetime()
@@ -197,21 +204,33 @@ def obtener_columnas_datalake(headers: List[str]) -> dict:
 
 def leer_excel_upload(file) -> pd.DataFrame:
     xls = pd.ExcelFile(file)
+    first_valid_sheet = None
+
     for sheet_name in xls.sheet_names:
+        file.seek(0)
         df = pd.read_excel(file, sheet_name=sheet_name)
         if df.shape[0] > 0 and df.shape[1] > 1:
-            return df
-    return pd.read_excel(file, sheet_name=0)
+            first_valid_sheet = sheet_name
+            break
+
+    file.seek(0)
+    if first_valid_sheet is None:
+        return pd.read_excel(file, sheet_name=0)
+
+    return pd.read_excel(file, sheet_name=first_valid_sheet)
 
 
 def leer_archivo_reservas(file) -> pd.DataFrame:
     nombre = file.name.lower()
     if nombre.endswith(".csv"):
         try:
+            file.seek(0)
             return pd.read_csv(file)
         except Exception:
             file.seek(0)
             return pd.read_csv(file, sep=";")
+
+    file.seek(0)
     return leer_excel_upload(file)
 
 
@@ -220,6 +239,14 @@ def leer_archivo_reservas(file) -> pd.DataFrame:
 # =========================
 @st.cache_resource(show_spinner=False)
 def get_gspread_client():
+    secrets_dict = st.secrets.to_dict()
+
+    if "gcp_service_account" not in secrets_dict:
+        raise KeyError(
+            'No encontré "gcp_service_account" en Secrets. '
+            'Debes cargar la service account completa.'
+        )
+
     creds_info = dict(st.secrets["gcp_service_account"])
     credentials = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
     return gspread.authorize(credentials)
@@ -228,26 +255,30 @@ def get_gspread_client():
 def leer_google_sheet(url: str, worksheet_name: str) -> pd.DataFrame:
     gc = get_gspread_client()
     sh = gc.open_by_url(url)
+
+    disponibles = [ws.title for ws in sh.worksheets()]
+    if worksheet_name not in disponibles:
+        raise ValueError(
+            f'No encontré la pestaña "{worksheet_name}". '
+            f'Pestañas disponibles: {", ".join(disponibles)}'
+        )
+
     ws = sh.worksheet(worksheet_name)
     records = ws.get_all_records()
     return pd.DataFrame(records)
 
 
 def cargar_bases_maestras() -> Tuple[pd.DataFrame, pd.DataFrame]:
-    # Soporta dos formas:
-    # 1) Un solo archivo con dos pestañas
-    # 2) Dos URLs separadas
-    if "MASTER_SHEET_URL" in st.secrets:
-        master_url = st.secrets["MASTER_SHEET_URL"]
-        df_noel = leer_google_sheet(master_url, NOEL_SHEET_NAME)
-        df_datalake = leer_google_sheet(master_url, DATALAKE_SHEET_NAME)
-        return df_noel, df_datalake
+    secrets_dict = st.secrets.to_dict()
 
-    noel_url = st.secrets["NOEL_SHEET_URL"]
-    datalake_url = st.secrets["DATALAKE_SHEET_URL"]
+    if "MASTER_SHEET_URL" not in secrets_dict:
+        raise KeyError(
+            'No encontré "MASTER_SHEET_URL" en Secrets.'
+        )
 
-    df_noel = leer_google_sheet(noel_url, NOEL_SHEET_NAME if "gid=" not in noel_url else NOEL_SHEET_NAME)
-    df_datalake = leer_google_sheet(datalake_url, DATALAKE_SHEET_NAME if "gid=" not in datalake_url else DATALAKE_SHEET_NAME)
+    master_url = secrets_dict["MASTER_SHEET_URL"]
+    df_noel = leer_google_sheet(master_url, NOEL_SHEET_NAME)
+    df_datalake = leer_google_sheet(master_url, DATALAKE_SHEET_NAME)
 
     return df_noel, df_datalake
 
@@ -612,9 +643,6 @@ def escribir_tabla_resumen_excel(ws, start_row: int, titulo: str, headers: List[
 def construir_excel(registros: List[dict]) -> bytes:
     wb = Workbook()
 
-    # -------------------------
-    # Hoja detalle
-    # -------------------------
     ws_detalle = wb.active
     ws_detalle.title = DETAIL_SHEET_NAME
 
@@ -636,9 +664,6 @@ def construir_excel(registros: List[dict]) -> bytes:
 
     formatear_hoja_base_excel(ws_detalle, len(headers_detalle))
 
-    # -------------------------
-    # Hoja resumen
-    # -------------------------
     ws_resumen = wb.create_sheet(SUMMARY_SHEET_NAME)
     ws_resumen["A1"] = "Indicador"
     ws_resumen["B1"] = "Valor"
@@ -659,9 +684,6 @@ def construir_excel(registros: List[dict]) -> bytes:
 
     formatear_resumen_excel(ws_resumen)
 
-    # -------------------------
-    # Hoja informe mensual
-    # -------------------------
     fecha_base = None
     for r in registros:
         fecha_base = parse_fecha_flexible(r["fecha"])
@@ -768,7 +790,6 @@ def construir_excel(registros: List[dict]) -> bytes:
         ]
     )
 
-    # Dar formato a secciones
     for r in range(13, ws_inf.max_row + 1):
         titulo = valor_texto(ws_inf.cell(r, 1).value)
         siguiente = ws_inf.cell(r + 1, 1).value if r + 1 <= ws_inf.max_row else None
@@ -791,12 +812,6 @@ def construir_excel(registros: List[dict]) -> bytes:
 # =========================
 # MAIN
 # =========================
-with st.expander("Ayuda de configuración", expanded=False):
-    st.info(
-        "La configuración real se carga desde Settings > Secrets en Streamlit Cloud. "
-        "Este bloque no muestra tus secretos reales."
-    )
-
 uploaded_file = st.file_uploader(
     "Sube el archivo de reservas (.xlsx, .xls o .csv)",
     type=["xlsx", "xls", "csv"]
