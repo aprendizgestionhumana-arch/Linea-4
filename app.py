@@ -498,10 +498,9 @@ def construir_metricas_desde_archivo(df_reservas: pd.DataFrame, col: dict) -> di
     rows = df_reservas.fillna("").to_dict("records")
 
     total_reservas = len(rows)
-
-    personas_unicas_total = set()
-    personas_no_consumieron = set()
-    personas_consumieron = set()
+    total_consumieron = 0
+    total_no_consumieron = 0
+    personas_unicas_no_consumieron = set()
 
     for row in rows:
         registro = {
@@ -511,23 +510,20 @@ def construir_metricas_desde_archivo(df_reservas: pd.DataFrame, col: dict) -> di
         }
 
         key = clave_persona(registro)
-        if key:
-            personas_unicas_total.add(key)
-
         estado = valor_texto(row[df_reservas.columns[col["status_pedido"]]]).lower()
 
-        if estado == "accepted":
+        if estado == "delivered":
+            total_consumieron += 1
+        elif estado == "accepted":
+            total_no_consumieron += 1
             if key:
-                personas_no_consumieron.add(key)
-        elif estado == "delivered":
-            if key:
-                personas_consumieron.add(key)
+                personas_unicas_no_consumieron.add(key)
 
     return {
         "totalReservas": total_reservas,
-        "personasConsumieron": len(personas_consumieron),
-        "personasNoConsumieron": len(personas_no_consumieron),
-        "personasUnicas": len(personas_unicas_total),
+        "personasConsumieron": total_consumieron,
+        "personasNoConsumieron": total_no_consumieron,
+        "personasUnicas": len(personas_unicas_no_consumieron),
     }
 
 
