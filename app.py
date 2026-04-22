@@ -519,7 +519,7 @@ def construir_metricas_desde_archivo(df_reservas: pd.DataFrame, col: dict) -> di
         if estado == "accepted":
             if key:
                 personas_no_consumieron.add(key)
-        else:
+        elif estado == "delivered":
             if key:
                 personas_consumieron.add(key)
 
