@@ -791,32 +791,10 @@ def construir_excel(registros: List[dict]) -> bytes:
 # =========================
 # MAIN
 # =========================
-with st.expander("Configuración esperada en secrets", expanded=False):
-    st.code(
-        """
-[gcp_service_account]
-type = "service_account"
-project_id = "..."
-private_key_id = "..."
-private_key = \"\"\"-----BEGIN PRIVATE KEY-----
-...
------END PRIVATE KEY-----\"\"\"
-client_email = "..."
-client_id = "..."
-auth_uri = "https://accounts.google.com/o/oauth2/auth"
-token_uri = "https://oauth2.googleapis.com/token"
-auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
-client_x509_cert_url = "..."
-universe_domain = "googleapis.com"
-
-# Opción 1: un solo Google Sheet con pestañas Noel y Datalake
-MASTER_SHEET_URL = "https://docs.google.com/spreadsheets/d/xxxxx/edit#gid=0"
-
-# Opción 2: dos Google Sheets separados
-# NOEL_SHEET_URL = "https://docs.google.com/spreadsheets/d/xxxxx/edit#gid=0"
-# DATALAKE_SHEET_URL = "https://docs.google.com/spreadsheets/d/yyyyy/edit#gid=0"
-        """,
-        language="toml"
+with st.expander("Ayuda de configuración", expanded=False):
+    st.info(
+        "La configuración real se carga desde Settings > Secrets en Streamlit Cloud. "
+        "Este bloque no muestra tus secretos reales."
     )
 
 uploaded_file = st.file_uploader(
