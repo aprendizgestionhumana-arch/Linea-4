@@ -184,7 +184,7 @@ def obtener_columnas_noel(headers: List[str]) -> dict:
         "empresa": buscar_columna(headers, ["nombre de la empresa de acuerdo al nit", "empresa"]),
         "cedula": buscar_columna(headers, ["cedula", "cédula"]),
         "gerencia": buscar_columna_opcional(headers, ["gerencia"]),
-        "nombre": buscar_columna_opcional(headers, ["nombre completo", "nombre", "empleado", "colaborador", "usuario"]),
+        "nombre": 4,  # Columna E
     }
 
 
@@ -194,7 +194,9 @@ def obtener_columnas_datalake(headers: List[str]) -> dict:
         "cedula": buscar_columna(headers, ["cedula", "cédula"]),
         "descripcion_gerencia": buscar_columna_opcional(headers, ["descripcion gerencia", "descripción gerencia", "gerencia"]),
         "nombre_jefe": buscar_columna_opcional(headers, ["nombre jefe", "jefe"]),
-        "nombre": buscar_columna_opcional(headers, ["nombre completo", "nombre", "empleado", "colaborador", "usuario"]),
+        "nombre": 6,      # Columna G
+        "apellido1": 7,   # Columna H
+        "apellido2": 8,   # Columna I
     }
 
 
