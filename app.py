@@ -316,11 +316,13 @@ def construir_indice_noel(df: pd.DataFrame) -> Dict[str, dict]:
         if not cedula:
             continue
 
+        nombre_completo = valor_texto(row[col["nombre"]]) if len(row) > col["nombre"] else ""
+
         idx[cedula] = {
             "empresa": valor_texto(row[col["empresa"]]),
             "gerencia": valor_texto(row[col["gerencia"]]) if col["gerencia"] != -1 else "",
             "jefe": "",
-            "nombreCompleto": valor_texto(row[col["nombre"]]) if col["nombre"] != -1 else "",
+            "nombreCompleto": nombre_completo,
             "fuenteCruce": "Noel",
             "encontrado": True,
         }
@@ -342,11 +344,16 @@ def construir_indice_datalake(df: pd.DataFrame) -> Dict[str, dict]:
         if not cedula:
             continue
 
+        nombre = valor_texto(row[col["nombre"]]) if len(row) > col["nombre"] else ""
+        apellido1 = valor_texto(row[col["apellido1"]]) if len(row) > col["apellido1"] else ""
+        apellido2 = valor_texto(row[col["apellido2"]]) if len(row) > col["apellido2"] else ""
+        nombre_completo = " ".join(x for x in [nombre, apellido1, apellido2] if x).strip()
+
         idx[cedula] = {
             "empresa": valor_texto(row[col["descripcion"]]),
             "gerencia": valor_texto(row[col["descripcion_gerencia"]]) if col["descripcion_gerencia"] != -1 else "",
             "jefe": valor_texto(row[col["nombre_jefe"]]) if col["nombre_jefe"] != -1 else "",
-            "nombreCompleto": valor_texto(row[col["nombre"]]) if col["nombre"] != -1 else "",
+            "nombreCompleto": nombre_completo,
             "fuenteCruce": "Datalake",
             "encontrado": True,
         }
