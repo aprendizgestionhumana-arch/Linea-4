@@ -38,12 +38,6 @@ st.set_page_config(page_title="Reservas - No consumieron", layout="wide")
 st.title("Reservas - No consumieron")
 st.caption("Sube el archivo de reservas y la app cruzará la información con Noel y Datalake desde Google Sheets.")
 
-with st.expander("Ayuda de configuración", expanded=False):
-    st.info(
-        "La configuración real se carga desde Settings > Secrets en Streamlit Cloud. "
-        "La app espera 'gcp_service_account' y 'MASTER_SHEET_URL'."
-    )
-
 
 # =========================
 # HELPERS
@@ -190,6 +184,7 @@ def obtener_columnas_noel(headers: List[str]) -> dict:
         "empresa": buscar_columna(headers, ["nombre de la empresa de acuerdo al nit", "empresa"]),
         "cedula": buscar_columna(headers, ["cedula", "cédula"]),
         "gerencia": buscar_columna_opcional(headers, ["gerencia"]),
+        "nombre": buscar_columna_opcional(headers, ["nombre completo", "nombre", "empleado", "colaborador", "usuario"]),
     }
 
 
@@ -199,6 +194,7 @@ def obtener_columnas_datalake(headers: List[str]) -> dict:
         "cedula": buscar_columna(headers, ["cedula", "cédula"]),
         "descripcion_gerencia": buscar_columna_opcional(headers, ["descripcion gerencia", "descripción gerencia", "gerencia"]),
         "nombre_jefe": buscar_columna_opcional(headers, ["nombre jefe", "jefe"]),
+        "nombre": buscar_columna_opcional(headers, ["nombre completo", "nombre", "empleado", "colaborador", "usuario"]),
     }
 
 
@@ -234,6 +230,16 @@ def leer_archivo_reservas(file) -> pd.DataFrame:
     return leer_excel_upload(file)
 
 
+def es_empresa_noel(empresa: str) -> bool:
+    e = normalizar_header(empresa)
+    return e in {
+        "compania de galletas noel s a s",
+        "compania de galletas noel sas",
+        "compania de galletas noel s a",
+        "compania de galletas noel",
+    }
+
+
 # =========================
 # GOOGLE SHEETS
 # =========================
@@ -257,7 +263,6 @@ def obtener_master_sheet_url() -> str:
 
     master_url = secrets_dict.get("MASTER_SHEET_URL")
 
-    # fallback por si accidentalmente quedó dentro del bloque gcp_service_account
     if not master_url and "gcp_service_account" in secrets_dict:
         gcp_block = secrets_dict.get("gcp_service_account", {})
         if isinstance(gcp_block, dict):
@@ -313,6 +318,7 @@ def construir_indice_noel(df: pd.DataFrame) -> Dict[str, dict]:
             "empresa": valor_texto(row[col["empresa"]]),
             "gerencia": valor_texto(row[col["gerencia"]]) if col["gerencia"] != -1 else "",
             "jefe": "",
+            "nombreCompleto": valor_texto(row[col["nombre"]]) if col["nombre"] != -1 else "",
             "fuenteCruce": "Noel",
             "encontrado": True,
         }
@@ -338,6 +344,7 @@ def construir_indice_datalake(df: pd.DataFrame) -> Dict[str, dict]:
             "empresa": valor_texto(row[col["descripcion"]]),
             "gerencia": valor_texto(row[col["descripcion_gerencia"]]) if col["descripcion_gerencia"] != -1 else "",
             "jefe": valor_texto(row[col["nombre_jefe"]]) if col["nombre_jefe"] != -1 else "",
+            "nombreCompleto": valor_texto(row[col["nombre"]]) if col["nombre"] != -1 else "",
             "fuenteCruce": "Datalake",
             "encontrado": True,
         }
@@ -485,6 +492,46 @@ def construir_sin_cruce(registros: List[dict]) -> List[List]:
 
 
 # =========================
+# MÉTRICAS
+# =========================
+def construir_metricas_desde_archivo(df_reservas: pd.DataFrame, col: dict) -> dict:
+    rows = df_reservas.fillna("").to_dict("records")
+
+    total_reservas = len(rows)
+
+    personas_unicas_total = set()
+    personas_no_consumieron = set()
+    personas_consumieron = set()
+
+    for row in rows:
+        registro = {
+            "cedula": row[df_reservas.columns[col["cedula"]]] if col["cedula"] != -1 else "",
+            "usuario": valor_texto(row[df_reservas.columns[col["usuario"]]]) if col["usuario"] != -1 else "",
+            "correo": valor_texto(row[df_reservas.columns[col["correo"]]]) if col["correo"] != -1 else "",
+        }
+
+        key = clave_persona(registro)
+        if key:
+            personas_unicas_total.add(key)
+
+        estado = valor_texto(row[df_reservas.columns[col["status_pedido"]]]).lower()
+
+        if estado == "accepted":
+            if key:
+                personas_no_consumieron.add(key)
+        else:
+            if key:
+                personas_consumieron.add(key)
+
+    return {
+        "totalReservas": total_reservas,
+        "personasConsumieron": len(personas_consumieron),
+        "personasNoConsumieron": len(personas_no_consumieron),
+        "personasUnicas": len(personas_unicas_total),
+    }
+
+
+# =========================
 # PROCESAMIENTO
 # =========================
 def procesar_reservas(df_reservas: pd.DataFrame, df_noel: pd.DataFrame, df_datalake: pd.DataFrame) -> Tuple[List[dict], dict]:
@@ -499,6 +546,8 @@ def procesar_reservas(df_reservas: pd.DataFrame, df_noel: pd.DataFrame, df_datal
     indice_noel = construir_indice_noel(df_noel)
     indice_datalake = construir_indice_datalake(df_datalake)
 
+    metricas = construir_metricas_desde_archivo(df_reservas, col)
+
     rows = df_reservas.fillna("").values.tolist()
 
     filtrados = []
@@ -512,18 +561,32 @@ def procesar_reservas(df_reservas: pd.DataFrame, df_noel: pd.DataFrame, df_datal
         cedula_original = valor_texto(row[col["cedula"]])
         cedula_normalizada = normalizar_documento(cedula_original)
 
-        cruce = indice_noel.get(cedula_normalizada)
-        if not cruce:
-            cruce = indice_datalake.get(cedula_normalizada)
-        if not cruce:
-            cruce = {}
+        cruce_noel = indice_noel.get(cedula_normalizada)
+        cruce_datalake = indice_datalake.get(cedula_normalizada)
+
+        cruce = cruce_noel or cruce_datalake or {}
+
+        empresa = valor_texto(cruce.get("empresa"))
+        gerencia = valor_texto(cruce.get("gerencia"))
+        jefe = valor_texto(cruce.get("jefe"))
+        fuente_cruce = valor_texto(cruce.get("fuenteCruce"))
+        nombre_completo = valor_texto(cruce.get("nombreCompleto"))
+
+        if es_empresa_noel(empresa) and cruce_datalake:
+            if not jefe:
+                jefe = valor_texto(cruce_datalake.get("jefe"))
+            if not nombre_completo:
+                nombre_completo = valor_texto(cruce_datalake.get("nombreCompleto"))
+
+        usuario_reserva = valor_texto(row[col["usuario"]])
+        usuario_final = nombre_completo or usuario_reserva
 
         registros.append({
             "fecha": row[col["fecha"]],
             "hora": row[col["hora"]],
             "numero": row[col["numero"]],
             "menu": row[col["menu"]],
-            "usuario": valor_texto(row[col["usuario"]]),
+            "usuario": usuario_final,
             "correo": valor_texto(row[col["correo"]]),
             "cedula": cedula_original,
             "matricula": valor_texto(row[col["matricula"]]) if col["matricula"] != -1 else "",
@@ -532,17 +595,17 @@ def procesar_reservas(df_reservas: pd.DataFrame, df_noel: pd.DataFrame, df_datal
             "puntoVenta": valor_texto(row[col["punto_venta"]]) if col["punto_venta"] != -1 else "",
             "lugarEntrega": valor_texto(row[col["lugar_entrega"]]) if col["lugar_entrega"] != -1 else "",
             "statusPedido": valor_texto(row[col["status_pedido"]]),
-
-            "empresa": valor_texto(cruce.get("empresa")),
-            "gerencia": valor_texto(cruce.get("gerencia")),
-            "jefe": valor_texto(cruce.get("jefe")),
-            "fuenteCruce": valor_texto(cruce.get("fuenteCruce")),
+            "empresa": empresa,
+            "gerencia": gerencia,
+            "jefe": jefe,
+            "fuenteCruce": fuente_cruce,
             "encontradoCruce": bool(cruce.get("encontrado", False)),
         })
 
     resultado = {
         "total": len(registros),
-        "personasUnicas": contar_personas_unicas(registros),
+        "personasUnicasNoConsumieron": contar_personas_unicas(registros),
+        **metricas,
     }
 
     return registros, resultado
@@ -551,6 +614,13 @@ def procesar_reservas(df_reservas: pd.DataFrame, df_noel: pd.DataFrame, df_datal
 # =========================
 # DATAFRAMES DE SALIDA
 # =========================
+def df_usuarios(registros: List[dict]) -> pd.DataFrame:
+    return pd.DataFrame(
+        construir_top_usuarios(registros),
+        columns=["Usuario", "CC / Nit", "Empresa", "Cantidad"]
+    )
+
+
 def df_detalle(registros: List[dict]) -> pd.DataFrame:
     return pd.DataFrame([{
         "Fecha": r["fecha"],
@@ -571,20 +641,6 @@ def df_detalle(registros: List[dict]) -> pd.DataFrame:
         "Lugar de entrega": r["lugarEntrega"],
         "Status del pedido": r["statusPedido"],
     } for r in registros])
-
-
-def df_resumen_kpis(registros: List[dict]) -> pd.DataFrame:
-    return pd.DataFrame([
-        ["Total no consumieron", len(registros)],
-        ["Personas únicas", contar_personas_unicas(registros)],
-    ], columns=["Indicador", "Valor"])
-
-
-def df_top_usuarios(registros: List[dict]) -> pd.DataFrame:
-    return pd.DataFrame(
-        construir_top_usuarios(registros),
-        columns=["Usuario", "CC / Nit", "Empresa", "Cantidad"]
-    )
 
 
 # =========================
@@ -608,7 +664,7 @@ def auto_fit_ws(ws):
                 max_length = max(max_length, len(value))
             except Exception:
                 pass
-        ws.column_dimensions[col_letter].width = min(max(max_length + 2, 12), 40)
+        ws.column_dimensions[col_letter].width = min(max(max_length + 2, 12), 45)
 
 
 def formatear_hoja_base_excel(ws, total_columns: int):
@@ -822,30 +878,6 @@ def construir_excel(registros: List[dict]) -> bytes:
 
 
 # =========================
-# DIAGNÓSTICO
-# =========================
-with st.expander("Diagnóstico", expanded=False):
-    try:
-        secrets_dict = st.secrets.to_dict()
-        st.write("Claves visibles en secrets:", list(secrets_dict.keys()))
-
-        if "gcp_service_account" in secrets_dict and isinstance(secrets_dict["gcp_service_account"], dict):
-            st.write(
-                "Claves dentro de gcp_service_account:",
-                list(secrets_dict["gcp_service_account"].keys())
-            )
-
-        if st.button("Probar conexión con Google Sheets"):
-            master_url = obtener_master_sheet_url()
-            gc = get_gspread_client()
-            sh = gc.open_by_url(master_url)
-            hojas = [ws.title for ws in sh.worksheets()]
-            st.success(f"Conexión exitosa. Hojas encontradas: {hojas}")
-    except Exception as e:
-        st.error(f"Diagnóstico: {e}")
-
-
-# =========================
 # MAIN
 # =========================
 uploaded_file = st.file_uploader(
@@ -862,23 +894,16 @@ if uploaded_file:
             df_reservas = leer_archivo_reservas(uploaded_file)
             registros, resultado = procesar_reservas(df_reservas, df_noel, df_datalake)
 
-        detalle = df_detalle(registros)
-        resumen = df_resumen_kpis(registros)
-        top = df_top_usuarios(registros)
+        usuarios = df_usuarios(registros)
 
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Total no consumieron", resultado["total"])
-        c2.metric("Personas únicas", resultado["personasUnicas"])
-        c3.metric("Sin cruce", int((detalle["Empresa"].fillna("") == "").sum()))
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total reservas", resultado["totalReservas"])
+        c2.metric("Personas consumieron", resultado["personasConsumieron"])
+        c3.metric("Personas no consumieron", resultado["personasNoConsumieron"])
+        c4.metric("Personas únicas", resultado["personasUnicas"])
 
-        st.subheader("Resumen")
-        st.dataframe(resumen, use_container_width=True)
-
-        st.subheader("Top usuarios")
-        st.dataframe(top, use_container_width=True)
-
-        st.subheader("Detalle")
-        st.dataframe(detalle, use_container_width=True, height=450)
+        st.subheader("USUARIOS")
+        st.dataframe(usuarios, use_container_width=True, height=450)
 
         excel_bytes = construir_excel(registros)
         nombre_salida = f"resultado_no_consumieron_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
