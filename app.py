@@ -749,7 +749,7 @@ if uploaded_file:
         c3.metric("No consumieron", resultado["personasNoConsumieron"])
         c4.metric("Personas únicas", resultado["personasUnicas"])
 
-        st.subheader("USUARIOS")
+        st.subheader("USUARIOS QUE NO CONSUMIERON")
         st.dataframe(usuarios, use_container_width=True, height=450)
 
         if st.button("Guardar informe en la BD", type="primary"):
