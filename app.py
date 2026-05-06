@@ -180,6 +180,7 @@ def obtener_columnas_noel(headers: List[str]) -> dict:
         "empresa": buscar_columna(headers, ["nombre de la empresa de acuerdo al nit", "empresa"]),
         "cedula": buscar_columna(headers, ["cedula", "cédula"]),
         "gerencia": buscar_columna_opcional(headers, ["gerencia"]),
+        "coordinador": buscar_columna_opcional(headers, ["coordinador", "nombre coordinador"]),
         "nombre": 4,
     }
 
