@@ -137,7 +137,6 @@ def obtener_columnas_datalake(headers: List[str]) -> dict:
         "cedula": buscar_columna(headers, ["cedula", "cédula"]),
         "descripcion_gerencia": buscar_columna_opcional(headers, ["descripcion gerencia", "descripción gerencia", "gerencia"]),
         "nombre_jefe": buscar_columna_opcional(headers, ["nombre jefe", "jefe"]),
-        "jefe": buscar_columna_opcional(headers, ["coordinador", "nombre coordinador"]),
         "nombre": 6,
         "apellido1": 7,
         "apellido2": 8,
@@ -334,11 +333,13 @@ def construir_indice_datalake(df: pd.DataFrame) -> Dict[str, dict]:
         apellido2 = valor_texto(row[col["apellido2"]]) if len(row) > col["apellido2"] else ""
         nombre_completo = " ".join(x for x in [nombre, apellido1, apellido2] if x).strip()
 
+        nombre_jefe = valor_texto(row[col["nombre_jefe"]]) if col["nombre_jefe"] != -1 else ""
+
         idx[cedula] = {
             "empresa": valor_texto(row[col["descripcion"]]),
             "gerencia": valor_texto(row[col["descripcion_gerencia"]]) if col["descripcion_gerencia"] != -1 else "",
-            "jefe": valor_texto(row[col["nombre_jefe"]]) if col["nombre_jefe"] != -1 else "",
-            "coordinador": valor_texto(row[col["coordinador"]]) if col["coordinador"] != -1 else "",
+            "jefe": nombre_jefe,
+            "coordinador": nombre_jefe,
             "nombreCompleto": nombre_completo,
             "fuenteCruce": "Datalake",
             "encontrado": True,
@@ -453,7 +454,7 @@ def procesar_reservas(
 
         if es_empresa_noel(empresa) and cruce_datalake:
             jefe = valor_texto(cruce_datalake.get("jefe")) or jefe
-            coordinador = valor_texto(cruce_datalake.get("coordinador")) or coordinador
+            coordinador = valor_texto(cruce_datalake.get("coordinador")) or jefe
             nombre_completo = valor_texto(cruce_datalake.get("nombreCompleto")) or nombre_completo
 
         usuario_reserva = valor_texto(row[col["usuario"]])
@@ -534,7 +535,7 @@ def guardar_informe_en_bd(registros: List[dict], nombre_archivo: str, resultado:
         "Nombre completo",
         "Cédula",
         "Empresa",
-        "Coordinador",
+        "Coordinador / Nombre Jefe",
         "Día que reservó",
         "Qué reservó",
         "Reincidencia",
