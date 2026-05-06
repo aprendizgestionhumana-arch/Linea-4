@@ -510,6 +510,7 @@ def procesar_reservas(
         gerencia = valor_texto(cruce.get("gerencia"))
         jefe = valor_texto(cruce.get("jefe"))
         nombre_completo = valor_texto(cruce.get("nombreCompleto"))
+        coordinador = valor_texto(cruce.get("coordinador"))
 
         if es_empresa_noel(empresa) and cruce_datalake:
             if not jefe:
