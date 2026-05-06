@@ -29,8 +29,8 @@ SCOPES = [
 # UI
 # =========================
 st.set_page_config(page_title="Reservas - No consumieron", layout="wide")
-st.title("Reservas - No consumieron")
-st.caption("Sube el archivo de reservas y la app cruzará la información con Noel y Datalake desde Google Sheets.")
+st.title("Reservas - Linea 4")
+st.caption("Sube el archivo de reservas y la app cruzará la información.")
 
 
 # =========================
