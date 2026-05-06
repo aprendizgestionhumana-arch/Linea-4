@@ -583,6 +583,11 @@ def guardar_informe_en_bd(registros: List[dict], nombre_archivo: str, resultado:
 
     personas_ya_mostradas = set()
 
+    empresas_ordenadas = sorted(
+        total_por_empresa.items(),
+        key=lambda x: (-x[1], x[0])
+    )
+
     valores = [[
         "Nombre completo",
         "Cédula",
@@ -590,17 +595,13 @@ def guardar_informe_en_bd(registros: List[dict], nombre_archivo: str, resultado:
         "Día que reservó",
         "Qué reservó",
         "Reincidencia",
-        "Resumen por empresa",
+        "Total por persona",
+        "Resumen empresa",
         "Total empresa",
         "Total reservas",
         "Total sí consumieron",
         "Total no consumieron"
     ]]
-
-    empresas_ordenadas = sorted(
-        total_por_empresa.items(),
-        key=lambda x: (-x[1], x[0])
-    )
 
     for i, r in enumerate(registros):
         key = clave_persona(r)
@@ -636,6 +637,7 @@ def guardar_informe_en_bd(registros: List[dict], nombre_archivo: str, resultado:
             r["fecha"],
             r["menu"],
             reincidencia,
+            total_persona,
             empresa_resumen,
             total_empresa,
             total_reservas,
@@ -651,7 +653,6 @@ def guardar_informe_en_bd(registros: List[dict], nombre_archivo: str, resultado:
         pass
 
     return nombre_hoja
-
 
 # =========================
 # MAIN
