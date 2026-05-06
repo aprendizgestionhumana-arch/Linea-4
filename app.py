@@ -638,86 +638,29 @@ def guardar_informe_en_bd(registros: List[dict], nombre_archivo: str) -> str:
         ws = sh.worksheet(nombre_hoja)
         ws.clear()
     else:
-        ws = sh.add_worksheet(title=nombre_hoja, rows=2000, cols=20)
+        ws = sh.add_worksheet(title=nombre_hoja, rows=2000, cols=10)
 
-    fecha_base = None
+    valores = [[
+        "Nombre completo",
+        "Cédula",
+        "Empresa",
+        "Día que reservó",
+        "Qué reservó"
+    ]]
+
     for r in registros:
-        fecha_base = parse_fecha_flexible(r["fecha"])
-        if fecha_base:
-            break
-
-    if not fecha_base:
-        fecha_base = datetime.now()
-
-    periodo = obtener_periodo_desde_fecha(fecha_base)
-
-    total = len(registros)
-    personas_unicas = contar_personas_unicas(registros)
-    empresas_unicas = contar_unicos([r["empresa"] for r in registros])
-    gerencias_unicas = contar_unicos([r["gerencia"] for r in registros])
-    jefes_unicos = contar_unicos([r["jefe"] for r in registros])
-
-    bloques = []
-
-    bloques.append([f"INFORME NO CONSUMIERON - {periodo}"])
-    bloques.append([])
-    bloques.append(["Generado el", datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
-    bloques.append([])
-    bloques.append(["KPI", "Valor"])
-    bloques.append(["Total no consumieron", total])
-    bloques.append(["Personas únicas", personas_unicas])
-    bloques.append(["Empresas únicas", empresas_unicas])
-    bloques.append(["Gerencias únicas", gerencias_unicas])
-    bloques.append(["Jefes únicos", jefes_unicos])
-    bloques.append([])
-
-    bloques.append(["Resumen por empresa"])
-    bloques.append(["Empresa", "Reservas no consumidas", "Personas únicas", "Gerencias"])
-    bloques.extend(resumir_por_empresa(registros) or [["Sin datos"]])
-    bloques.append([])
-
-    bloques.append(["Resumen por gerencia"])
-    bloques.append(["Gerencia", "Reservas no consumidas", "Personas únicas", "Empresas"])
-    bloques.extend(resumir_por_gerencia(registros) or [["Sin datos"]])
-    bloques.append([])
-
-    bloques.append(["Resumen por jefe"])
-    bloques.append(["Jefe", "Reservas no consumidas", "Personas únicas", "Empresas"])
-    bloques.extend(resumir_por_jefe(registros) or [["Sin datos"]])
-    bloques.append([])
-
-    bloques.append(["Top personas reincidentes"])
-    bloques.append(["Usuario", "CC / Nit", "Empresa", "Gerencia", "Cantidad"])
-    bloques.extend(construir_top_usuarios_detallado(registros) or [["Sin datos"]])
-    bloques.append([])
-
-    bloques.append(["Sin cruce"])
-    bloques.append(["Usuario", "CC / Nit", "Fecha", "Área reserva"])
-    bloques.extend(construir_sin_cruce(registros) or [["Sin datos"]])
-    bloques.append([])
-
-    bloques.append(["Detalle completo"])
-    bloques.append([
-        "Fecha", "Hora", "Numero", "Usuario", "CC / Nit", "Empresa",
-        "Gerencia", "Jefe", "Área reserva", "Menu", "Status del pedido"
-    ])
-    detalle_rows = [
-        [
-            r["fecha"], r["hora"], r["numero"], r["usuario"], r["cedula"],
-            r["empresa"], r["gerencia"], r["jefe"], r["areaReserva"],
-            r["menu"], r["statusPedido"]
-        ]
-        for r in registros
-    ]
-    bloques.extend(detalle_rows or [["Sin datos"]])
-
-    max_cols = max(len(r) for r in bloques if r)
-    valores = [r + [""] * (max_cols - len(r)) for r in bloques]
+        valores.append([
+            r["usuario"],
+            r["cedula"],
+            r["empresa"],
+            r["fecha"],
+            r["menu"]
+        ])
 
     ws.update("A1", valores)
 
     try:
-        ws.freeze(rows=4)
+        ws.freeze(rows=1)
     except Exception:
         pass
 
