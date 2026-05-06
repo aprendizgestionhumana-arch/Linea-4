@@ -137,7 +137,7 @@ def obtener_columnas_datalake(headers: List[str]) -> dict:
         "cedula": buscar_columna(headers, ["cedula", "cédula"]),
         "descripcion_gerencia": buscar_columna_opcional(headers, ["descripcion gerencia", "descripción gerencia", "gerencia"]),
         "nombre_jefe": buscar_columna_opcional(headers, ["nombre jefe", "jefe"]),
-        "coordinador": buscar_columna_opcional(headers, ["coordinador", "nombre coordinador"]),
+        "jefe": buscar_columna_opcional(headers, ["coordinador", "nombre coordinador"]),
         "nombre": 6,
         "apellido1": 7,
         "apellido2": 8,
