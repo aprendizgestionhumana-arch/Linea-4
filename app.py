@@ -636,19 +636,20 @@ def guardar_informe_en_bd(registros: List[dict], nombre_archivo: str, resultado:
             total_no_consumieron = ""
 
         valores.append([
-            r["usuario"],
-            r["cedula"],
-            r["empresa"],
-            r["fecha"],
-            r["menu"],
-            reincidencia,
-            total_persona,
-            empresa_resumen,
-            total_empresa,
-            total_reservas,
-            total_si_consumieron,
-            total_no_consumieron,
-        ])
+          r["usuario"],
+          r["cedula"],
+          r["empresa"],
+          r.get("coordinador", ""),
+          r["fecha"],
+          r["menu"],
+          reincidencia,
+          total_persona,
+          empresa_resumen,
+          total_empresa,
+          total_reservas,
+          total_si_consumieron,
+          total_no_consumieron,
+      ])
 
     ws.update("A1", valores)
 
