@@ -250,6 +250,10 @@ def obtener_mes_desde_nombre_archivo(nombre_archivo: str) -> str:
     return datetime.now().strftime("%b").upper()[:3]
 
 
+def formatear_cop(valor: float) -> str:
+    return f"${valor:,.0f}".replace(",", ".")
+
+
 # =========================
 # GOOGLE SHEETS
 # =========================
@@ -328,12 +332,11 @@ def obtener_valor_unitario() -> float:
 
     valor = valor.replace("$", "").replace(" ", "")
 
-    if "," in valor and "." in valor:
-        valor = valor.replace(".", "").replace(",", ".")
-    elif "," in valor:
-        valor = valor.replace(",", ".")
-    else:
-        valor = valor.replace(",", "")
+    # Formato colombiano:
+    # 15.000 = 15000
+    # 15000 = 15000
+    # 15,000 = 15000
+    valor = valor.replace(".", "").replace(",", "")
 
     try:
         return float(valor)
@@ -602,14 +605,14 @@ def guardar_informe_en_bd(registros: List[dict], nombre_archivo: str, resultado:
 
         if key not in personas_ya_mostradas:
             reincidencia = reincidencias.get(key, 1)
-            total_persona = reincidencia * valor_unitario
+            total_persona = formatear_cop(reincidencia * valor_unitario)
             personas_ya_mostradas.add(key)
         else:
             reincidencia = ""
             total_persona = ""
 
         if empresa not in empresas_ya_mostradas:
-            total_empresa = total_por_empresa.get(empresa, 0)
+            total_empresa = formatear_cop(total_por_empresa.get(empresa, 0))
             empresas_ya_mostradas.add(empresa)
         else:
             total_empresa = ""
