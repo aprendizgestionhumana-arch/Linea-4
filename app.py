@@ -12,8 +12,6 @@ from google.oauth2.service_account import Credentials
 # =========================
 # CONFIG
 # =========================
-DETAIL_SHEET_NAME = "No_consumieron"
-SUMMARY_SHEET_NAME = "Resumen"
 NOEL_SHEET_NAME = "Noel"
 DATALAKE_SHEET_NAME = "Datalake"
 VALOR_SHEET_NAME = "Valor"
@@ -64,63 +62,12 @@ def limpiar_nombre_hoja(nombre: str) -> str:
     return re.sub(r'[\\\/\?\*\[\]\:]', "_", valor_texto(nombre))[:31]
 
 
-def parse_fecha_flexible(valor) -> Optional[datetime]:
-    if isinstance(valor, datetime):
-        return valor
-
-    if hasattr(valor, "to_pydatetime"):
-        try:
-            return valor.to_pydatetime()
-        except Exception:
-            pass
-
-    texto = valor_texto(valor)
-    if not texto:
-        return None
-
-    formatos = [
-        "%d/%m/%Y",
-        "%Y-%m-%d",
-        "%d-%m-%Y",
-        "%m/%d/%Y",
-        "%d/%m/%Y %H:%M:%S",
-        "%Y-%m-%d %H:%M:%S",
-    ]
-
-    for fmt in formatos:
-        try:
-            return datetime.strptime(texto, fmt)
-        except Exception:
-            continue
-
-    try:
-        dt = pd.to_datetime(texto, errors="coerce", dayfirst=True)
-        if pd.notna(dt):
-            return dt.to_pydatetime()
-    except Exception:
-        pass
-
-    return None
-
-
-def obtener_periodo_desde_fecha(fecha: datetime) -> str:
-    year = fecha.year
-    month = fecha.month
-    mes_texto = MONTH_MAP[month - 1]
-    mes_num = f"{month:02d}"
-    return f"{year}_{mes_num}_{mes_texto}"
-
-
-def contar_unicos(arr: List[str]) -> int:
-    return len({valor_texto(x) for x in arr if valor_texto(x)})
+def formatear_cop(valor: float) -> str:
+    return f"${valor:,.0f}".replace(",", ".")
 
 
 def clave_persona(r: dict) -> str:
     return normalizar_documento(r.get("cedula")) or f"{valor_texto(r.get('usuario'))}|{valor_texto(r.get('correo'))}"
-
-
-def contar_personas_unicas(registros: List[dict]) -> int:
-    return len({clave_persona(r) for r in registros})
 
 
 def buscar_columna(headers: List[str], candidatos: List[str]) -> int:
@@ -180,7 +127,6 @@ def obtener_columnas_noel(headers: List[str]) -> dict:
         "empresa": buscar_columna(headers, ["nombre de la empresa de acuerdo al nit", "empresa"]),
         "cedula": buscar_columna(headers, ["cedula", "cédula"]),
         "gerencia": buscar_columna_opcional(headers, ["gerencia"]),
-        "coordinador": buscar_columna_opcional(headers, ["coordinador", "nombre coordinador"]),
         "nombre": 4,
     }
 
@@ -191,6 +137,7 @@ def obtener_columnas_datalake(headers: List[str]) -> dict:
         "cedula": buscar_columna(headers, ["cedula", "cédula"]),
         "descripcion_gerencia": buscar_columna_opcional(headers, ["descripcion gerencia", "descripción gerencia", "gerencia"]),
         "nombre_jefe": buscar_columna_opcional(headers, ["nombre jefe", "jefe"]),
+        "coordinador": buscar_columna_opcional(headers, ["coordinador", "nombre coordinador"]),
         "nombre": 6,
         "apellido1": 7,
         "apellido2": 8,
@@ -249,10 +196,6 @@ def obtener_mes_desde_nombre_archivo(nombre_archivo: str) -> str:
             return mes
 
     return datetime.now().strftime("%b").upper()[:3]
-
-
-def formatear_cop(valor: float) -> str:
-    return f"${valor:,.0f}".replace(",", ".")
 
 
 # =========================
@@ -332,11 +275,6 @@ def obtener_valor_unitario() -> float:
         raise ValueError('La celda A2 de la hoja "Valor" está vacía.')
 
     valor = valor.replace("$", "").replace(" ", "")
-
-    # Formato colombiano:
-    # 15.000 = 15000
-    # 15000 = 15000
-    # 15,000 = 15000
     valor = valor.replace(".", "").replace(",", "")
 
     try:
@@ -345,6 +283,9 @@ def obtener_valor_unitario() -> float:
         raise ValueError(f'El valor de la celda A2 en la hoja "Valor" no es válido: {valor}')
 
 
+# =========================
+# ÍNDICES
+# =========================
 def construir_indice_noel(df: pd.DataFrame) -> Dict[str, dict]:
     if df.empty:
         return {}
@@ -362,14 +303,14 @@ def construir_indice_noel(df: pd.DataFrame) -> Dict[str, dict]:
         nombre_completo = valor_texto(row[col["nombre"]]) if len(row) > col["nombre"] else ""
 
         idx[cedula] = {
-          "empresa": valor_texto(row[col["empresa"]]),
-          "gerencia": valor_texto(row[col["gerencia"]]) if col["gerencia"] != -1 else "",
-          "jefe": "",
-          "coordinador": valor_texto(row[col["coordinador"]]) if col["coordinador"] != -1 else "",
-          "nombreCompleto": nombre_completo,
-          "fuenteCruce": "Noel",
-          "encontrado": True,
-      }
+            "empresa": valor_texto(row[col["empresa"]]),
+            "gerencia": valor_texto(row[col["gerencia"]]) if col["gerencia"] != -1 else "",
+            "jefe": "",
+            "coordinador": "",
+            "nombreCompleto": nombre_completo,
+            "fuenteCruce": "Noel",
+            "encontrado": True,
+        }
 
     return idx
 
@@ -397,6 +338,7 @@ def construir_indice_datalake(df: pd.DataFrame) -> Dict[str, dict]:
             "empresa": valor_texto(row[col["descripcion"]]),
             "gerencia": valor_texto(row[col["descripcion_gerencia"]]) if col["descripcion_gerencia"] != -1 else "",
             "jefe": valor_texto(row[col["nombre_jefe"]]) if col["nombre_jefe"] != -1 else "",
+            "coordinador": valor_texto(row[col["coordinador"]]) if col["coordinador"] != -1 else "",
             "nombreCompleto": nombre_completo,
             "fuenteCruce": "Datalake",
             "encontrado": True,
@@ -406,7 +348,7 @@ def construir_indice_datalake(df: pd.DataFrame) -> Dict[str, dict]:
 
 
 # =========================
-# RESÚMENES Y MÉTRICAS
+# MÉTRICAS
 # =========================
 def construir_top_usuarios(registros: List[dict]) -> List[List]:
     mapa = {}
@@ -487,17 +429,14 @@ def procesar_reservas(
     metricas = construir_metricas_desde_archivo(df_reservas, col)
     rows = df_reservas.fillna("").values.tolist()
 
-    filtrados = []
+    registros = []
 
     for row in rows:
         estado = valor_texto(row[col["status_pedido"]]).lower()
 
-        if estado == "accepted":
-            filtrados.append(row)
+        if estado != "accepted":
+            continue
 
-    registros = []
-
-    for row in filtrados:
         cedula_original = valor_texto(row[col["cedula"]])
         cedula_normalizada = normalizar_documento(cedula_original)
 
@@ -509,14 +448,13 @@ def procesar_reservas(
         empresa = valor_texto(cruce.get("empresa"))
         gerencia = valor_texto(cruce.get("gerencia"))
         jefe = valor_texto(cruce.get("jefe"))
-        nombre_completo = valor_texto(cruce.get("nombreCompleto"))
         coordinador = valor_texto(cruce.get("coordinador"))
+        nombre_completo = valor_texto(cruce.get("nombreCompleto"))
 
         if es_empresa_noel(empresa) and cruce_datalake:
-            if not jefe:
-                jefe = valor_texto(cruce_datalake.get("jefe"))
-            if not nombre_completo:
-                nombre_completo = valor_texto(cruce_datalake.get("nombreCompleto"))
+            jefe = valor_texto(cruce_datalake.get("jefe")) or jefe
+            coordinador = valor_texto(cruce_datalake.get("coordinador")) or coordinador
+            nombre_completo = valor_texto(cruce_datalake.get("nombreCompleto")) or nombre_completo
 
         usuario_reserva = valor_texto(row[col["usuario"]])
         usuario_final = nombre_completo or usuario_reserva
@@ -585,28 +523,28 @@ def guardar_informe_en_bd(registros: List[dict], nombre_archivo: str, resultado:
         reincidencias[key] = reincidencias.get(key, 0) + 1
         total_por_empresa[empresa] = total_por_empresa.get(empresa, 0) + valor_unitario
 
-    personas_ya_mostradas = set()
-
     empresas_ordenadas = sorted(
         total_por_empresa.items(),
         key=lambda x: (-x[1], x[0])
     )
 
+    personas_ya_mostradas = set()
+
     valores = [[
-    "Nombre completo",
-    "Cédula",
-    "Empresa",
-    "Coordinador",
-    "Día que reservó",
-    "Qué reservó",
-    "Reincidencia",
-    "Total por persona",
-    "Resumen empresa",
-    "Total empresa",
-    "Total reservas",
-    "Total sí consumieron",
-    "Total no consumieron"
-]]
+        "Nombre completo",
+        "Cédula",
+        "Empresa",
+        "Coordinador",
+        "Día que reservó",
+        "Qué reservó",
+        "Reincidencia",
+        "Total por persona",
+        "Resumen empresa",
+        "Total empresa",
+        "Total reservas",
+        "Total sí consumieron",
+        "Total no consumieron"
+    ]]
 
     for i, r in enumerate(registros):
         key = clave_persona(r)
@@ -636,20 +574,20 @@ def guardar_informe_en_bd(registros: List[dict], nombre_archivo: str, resultado:
             total_no_consumieron = ""
 
         valores.append([
-          r["usuario"],
-          r["cedula"],
-          r["empresa"],
-          r.get("coordinador", ""),
-          r["fecha"],
-          r["menu"],
-          reincidencia,
-          total_persona,
-          empresa_resumen,
-          total_empresa,
-          total_reservas,
-          total_si_consumieron,
-          total_no_consumieron,
-      ])
+            r["usuario"],
+            r["cedula"],
+            r["empresa"],
+            r.get("coordinador", ""),
+            r["fecha"],
+            r["menu"],
+            reincidencia,
+            total_persona,
+            empresa_resumen,
+            total_empresa,
+            total_reservas,
+            total_si_consumieron,
+            total_no_consumieron,
+        ])
 
     ws.update("A1", valores)
 
@@ -659,6 +597,7 @@ def guardar_informe_en_bd(registros: List[dict], nombre_archivo: str, resultado:
         pass
 
     return nombre_hoja
+
 
 # =========================
 # MAIN
