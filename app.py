@@ -593,19 +593,20 @@ def guardar_informe_en_bd(registros: List[dict], nombre_archivo: str, resultado:
     )
 
     valores = [[
-        "Nombre completo",
-        "Cédula",
-        "Empresa",
-        "Día que reservó",
-        "Qué reservó",
-        "Reincidencia",
-        "Total por persona",
-        "Resumen empresa",
-        "Total empresa",
-        "Total reservas",
-        "Total sí consumieron",
-        "Total no consumieron"
-    ]]
+    "Nombre completo",
+    "Cédula",
+    "Empresa",
+    "Coordinador",
+    "Día que reservó",
+    "Qué reservó",
+    "Reincidencia",
+    "Total por persona",
+    "Resumen empresa",
+    "Total empresa",
+    "Total reservas",
+    "Total sí consumieron",
+    "Total no consumieron"
+]]
 
     for i, r in enumerate(registros):
         key = clave_persona(r)
