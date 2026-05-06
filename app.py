@@ -538,6 +538,7 @@ def procesar_reservas(
             "empresa": empresa,
             "gerencia": gerencia,
             "jefe": jefe,
+            "coordinador": coordinador,
             "encontradoCruce": bool(cruce.get("encontrado", False)),
         })
 
