@@ -362,13 +362,14 @@ def construir_indice_noel(df: pd.DataFrame) -> Dict[str, dict]:
         nombre_completo = valor_texto(row[col["nombre"]]) if len(row) > col["nombre"] else ""
 
         idx[cedula] = {
-            "empresa": valor_texto(row[col["empresa"]]),
-            "gerencia": valor_texto(row[col["gerencia"]]) if col["gerencia"] != -1 else "",
-            "jefe": "",
-            "nombreCompleto": nombre_completo,
-            "fuenteCruce": "Noel",
-            "encontrado": True,
-        }
+          "empresa": valor_texto(row[col["empresa"]]),
+          "gerencia": valor_texto(row[col["gerencia"]]) if col["gerencia"] != -1 else "",
+          "jefe": "",
+          "coordinador": valor_texto(row[col["coordinador"]]) if col["coordinador"] != -1 else "",
+          "nombreCompleto": nombre_completo,
+          "fuenteCruce": "Noel",
+          "encontrado": True,
+      }
 
     return idx
 
