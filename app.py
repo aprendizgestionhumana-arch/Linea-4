@@ -16,6 +16,7 @@ DETAIL_SHEET_NAME = "No_consumieron"
 SUMMARY_SHEET_NAME = "Resumen"
 NOEL_SHEET_NAME = "Noel"
 DATALAKE_SHEET_NAME = "Datalake"
+VALOR_SHEET_NAME = "Valor"
 
 MONTH_MAP = ["ENE", "FEB", "MAR", "ABR", "MAY", "JUN",
              "JUL", "AGO", "SEP", "OCT", "NOV", "DIC"]
@@ -179,7 +180,7 @@ def obtener_columnas_noel(headers: List[str]) -> dict:
         "empresa": buscar_columna(headers, ["nombre de la empresa de acuerdo al nit", "empresa"]),
         "cedula": buscar_columna(headers, ["cedula", "cédula"]),
         "gerencia": buscar_columna_opcional(headers, ["gerencia"]),
-        "nombre": 4,  # E
+        "nombre": 4,
     }
 
 
@@ -189,9 +190,9 @@ def obtener_columnas_datalake(headers: List[str]) -> dict:
         "cedula": buscar_columna(headers, ["cedula", "cédula"]),
         "descripcion_gerencia": buscar_columna_opcional(headers, ["descripcion gerencia", "descripción gerencia", "gerencia"]),
         "nombre_jefe": buscar_columna_opcional(headers, ["nombre jefe", "jefe"]),
-        "nombre": 6,      # G
-        "apellido1": 7,   # H
-        "apellido2": 8,   # I
+        "nombre": 6,
+        "apellido1": 7,
+        "apellido2": 8,
     }
 
 
@@ -207,6 +208,7 @@ def leer_excel_upload(file) -> pd.DataFrame:
             break
 
     file.seek(0)
+
     if first_valid_sheet is None:
         return pd.read_excel(file, sheet_name=0)
 
@@ -215,6 +217,7 @@ def leer_excel_upload(file) -> pd.DataFrame:
 
 def leer_archivo_reservas(file) -> pd.DataFrame:
     nombre = file.name.lower()
+
     if nombre.endswith(".csv"):
         try:
             file.seek(0)
@@ -239,9 +242,11 @@ def es_empresa_noel(empresa: str) -> bool:
 
 def obtener_mes_desde_nombre_archivo(nombre_archivo: str) -> str:
     nombre = normalizar_header(nombre_archivo).upper()
+
     for mes in MONTH_MAP:
         if mes in nombre:
             return mes
+
     return datetime.now().strftime("%b").upper()[:3]
 
 
@@ -264,7 +269,6 @@ def get_gspread_client():
 
 def obtener_master_sheet_url() -> str:
     secrets_dict = st.secrets.to_dict()
-
     master_url = secrets_dict.get("MASTER_SHEET_URL")
 
     if not master_url and "gcp_service_account" in secrets_dict:
@@ -307,6 +311,34 @@ def cargar_bases_maestras() -> Tuple[pd.DataFrame, pd.DataFrame]:
     df_noel = leer_google_sheet(master_url, NOEL_SHEET_NAME)
     df_datalake = leer_google_sheet(master_url, DATALAKE_SHEET_NAME)
     return df_noel, df_datalake
+
+
+def obtener_valor_unitario() -> float:
+    sh = open_master_spreadsheet()
+
+    try:
+        ws = sh.worksheet(VALOR_SHEET_NAME)
+    except Exception:
+        raise ValueError('No encontré la hoja "Valor" en la BD.')
+
+    valor = valor_texto(ws.acell("A2").value)
+
+    if not valor:
+        raise ValueError('La celda A2 de la hoja "Valor" está vacía.')
+
+    valor = valor.replace("$", "").replace(" ", "")
+
+    if "," in valor and "." in valor:
+        valor = valor.replace(".", "").replace(",", ".")
+    elif "," in valor:
+        valor = valor.replace(",", ".")
+    else:
+        valor = valor.replace(",", "")
+
+    try:
+        return float(valor)
+    except Exception:
+        raise ValueError(f'El valor de la celda A2 en la hoja "Valor" no es válido: {valor}')
 
 
 def construir_indice_noel(df: pd.DataFrame) -> Dict[str, dict]:
@@ -376,6 +408,7 @@ def construir_top_usuarios(registros: List[dict]) -> List[List]:
 
     for r in registros:
         key = clave_persona(r)
+
         if key not in mapa:
             mapa[key] = {
                 "usuario": r["usuario"],
@@ -383,127 +416,12 @@ def construir_top_usuarios(registros: List[dict]) -> List[List]:
                 "empresa": r["empresa"],
                 "cantidad": 0,
             }
+
         mapa[key]["cantidad"] += 1
 
     return [
         [x["usuario"], x["cedula"], x["empresa"], x["cantidad"]]
         for x in sorted(mapa.values(), key=lambda x: (-x["cantidad"], x["usuario"]))
-    ]
-
-
-def construir_top_usuarios_detallado(registros: List[dict]) -> List[List]:
-    mapa = {}
-
-    for r in registros:
-        key = clave_persona(r)
-        if key not in mapa:
-            mapa[key] = {
-                "usuario": r["usuario"],
-                "cedula": r["cedula"],
-                "empresa": r["empresa"],
-                "gerencia": r["gerencia"],
-                "cantidad": 0,
-            }
-        mapa[key]["cantidad"] += 1
-
-    return [
-        [x["usuario"], x["cedula"], x["empresa"], x["gerencia"], x["cantidad"]]
-        for x in sorted(mapa.values(), key=lambda x: (-x["cantidad"], x["usuario"]))
-    ]
-
-
-def resumir_por_empresa(registros: List[dict]) -> List[List]:
-    mapa = {}
-
-    for r in registros:
-        empresa = valor_texto(r["empresa"]) or "SIN CRUCE"
-        if empresa not in mapa:
-            mapa[empresa] = {
-                "reservas": 0,
-                "personas": set(),
-                "gerencias": set(),
-            }
-
-        mapa[empresa]["reservas"] += 1
-        mapa[empresa]["personas"].add(clave_persona(r))
-        if valor_texto(r["gerencia"]):
-            mapa[empresa]["gerencias"].add(r["gerencia"])
-
-    data = []
-    for empresa, v in mapa.items():
-        data.append([
-            empresa,
-            v["reservas"],
-            len(v["personas"]),
-            ", ".join(sorted(v["gerencias"]))
-        ])
-
-    return sorted(data, key=lambda x: (-x[1], str(x[0])))
-
-
-def resumir_por_gerencia(registros: List[dict]) -> List[List]:
-    mapa = {}
-
-    for r in registros:
-        gerencia = valor_texto(r["gerencia"]) or "SIN CRUCE"
-        if gerencia not in mapa:
-            mapa[gerencia] = {
-                "reservas": 0,
-                "personas": set(),
-                "empresas": set(),
-            }
-
-        mapa[gerencia]["reservas"] += 1
-        mapa[gerencia]["personas"].add(clave_persona(r))
-        if valor_texto(r["empresa"]):
-            mapa[gerencia]["empresas"].add(r["empresa"])
-
-    data = []
-    for gerencia, v in mapa.items():
-        data.append([
-            gerencia,
-            v["reservas"],
-            len(v["personas"]),
-            ", ".join(sorted(v["empresas"]))
-        ])
-
-    return sorted(data, key=lambda x: (-x[1], str(x[0])))
-
-
-def resumir_por_jefe(registros: List[dict]) -> List[List]:
-    mapa = {}
-
-    for r in registros:
-        jefe = valor_texto(r["jefe"]) or "SIN CRUCE"
-        if jefe not in mapa:
-            mapa[jefe] = {
-                "reservas": 0,
-                "personas": set(),
-                "empresas": set(),
-            }
-
-        mapa[jefe]["reservas"] += 1
-        mapa[jefe]["personas"].add(clave_persona(r))
-        if valor_texto(r["empresa"]):
-            mapa[jefe]["empresas"].add(r["empresa"])
-
-    data = []
-    for jefe, v in mapa.items():
-        data.append([
-            jefe,
-            v["reservas"],
-            len(v["personas"]),
-            ", ".join(sorted(v["empresas"]))
-        ])
-
-    return sorted(data, key=lambda x: (-x[1], str(x[0])))
-
-
-def construir_sin_cruce(registros: List[dict]) -> List[List]:
-    return [
-        [r["usuario"], r["cedula"], r["fecha"], r["areaReserva"]]
-        for r in registros
-        if not r["encontradoCruce"]
     ]
 
 
@@ -543,12 +461,18 @@ def construir_metricas_desde_archivo(df_reservas: pd.DataFrame, col: dict) -> di
 # =========================
 # PROCESAMIENTO
 # =========================
-def procesar_reservas(df_reservas: pd.DataFrame, df_noel: pd.DataFrame, df_datalake: pd.DataFrame) -> Tuple[List[dict], dict]:
+def procesar_reservas(
+    df_reservas: pd.DataFrame,
+    df_noel: pd.DataFrame,
+    df_datalake: pd.DataFrame
+) -> Tuple[List[dict], dict]:
+
     if df_reservas.empty:
         raise ValueError("El archivo de reservas no tiene datos.")
 
     df_reservas = df_reservas.copy()
     df_reservas.columns = [valor_texto(c) for c in df_reservas.columns]
+
     headers = list(df_reservas.columns)
     col = obtener_columnas_reservas(headers)
 
@@ -556,16 +480,18 @@ def procesar_reservas(df_reservas: pd.DataFrame, df_noel: pd.DataFrame, df_datal
     indice_datalake = construir_indice_datalake(df_datalake)
 
     metricas = construir_metricas_desde_archivo(df_reservas, col)
-
     rows = df_reservas.fillna("").values.tolist()
 
     filtrados = []
+
     for row in rows:
         estado = valor_texto(row[col["status_pedido"]]).lower()
+
         if estado == "accepted":
             filtrados.append(row)
 
     registros = []
+
     for row in filtrados:
         cedula_original = valor_texto(row[col["cedula"]])
         cedula_normalizada = normalizar_documento(cedula_original)
@@ -627,25 +553,34 @@ def df_usuarios(registros: List[dict]) -> pd.DataFrame:
     )
 
 
-def guardar_informe_en_bd(registros: List[dict], nombre_archivo: str) -> str:
+def guardar_informe_en_bd(registros: List[dict], nombre_archivo: str, resultado: dict) -> str:
     sh = open_master_spreadsheet()
+    valor_unitario = obtener_valor_unitario()
 
     mes = obtener_mes_desde_nombre_archivo(nombre_archivo)
     nombre_hoja = limpiar_nombre_hoja(f"INF_{mes}")
 
     existentes = [ws.title for ws in sh.worksheets()]
+
     if nombre_hoja in existentes:
         ws = sh.worksheet(nombre_hoja)
         ws.clear()
     else:
-        ws = sh.add_worksheet(title=nombre_hoja, rows=2000, cols=10)
+        ws = sh.add_worksheet(title=nombre_hoja, rows=3000, cols=20)
 
     reincidencias = {}
+    total_por_empresa = {}
+
     for r in registros:
         key = clave_persona(r)
+        empresa = valor_texto(r["empresa"]) or "SIN CRUCE"
+
         reincidencias[key] = reincidencias.get(key, 0) + 1
+        total_por_empresa[empresa] = total_por_empresa.get(empresa, 0) + valor_unitario
 
     personas_ya_mostradas = set()
+    empresas_ya_mostradas = set()
+    totales_ya_mostrados = False
 
     valores = [[
         "Nombre completo",
@@ -653,17 +588,41 @@ def guardar_informe_en_bd(registros: List[dict], nombre_archivo: str) -> str:
         "Empresa",
         "Día que reservó",
         "Qué reservó",
-        "Reincidencia"
+        "Reincidencia",
+        "Total por persona",
+        "Total por empresa",
+        "Total reservas",
+        "Total sí consumieron",
+        "Total no consumieron"
     ]]
 
     for r in registros:
         key = clave_persona(r)
+        empresa = valor_texto(r["empresa"]) or "SIN CRUCE"
 
         if key not in personas_ya_mostradas:
             reincidencia = reincidencias.get(key, 1)
+            total_persona = reincidencia * valor_unitario
             personas_ya_mostradas.add(key)
         else:
             reincidencia = ""
+            total_persona = ""
+
+        if empresa not in empresas_ya_mostradas:
+            total_empresa = total_por_empresa.get(empresa, 0)
+            empresas_ya_mostradas.add(empresa)
+        else:
+            total_empresa = ""
+
+        if not totales_ya_mostrados:
+            total_reservas = resultado["totalReservas"]
+            total_si_consumieron = resultado["personasConsumieron"]
+            total_no_consumieron = resultado["personasNoConsumieron"]
+            totales_ya_mostrados = True
+        else:
+            total_reservas = ""
+            total_si_consumieron = ""
+            total_no_consumieron = ""
 
         valores.append([
             r["usuario"],
@@ -671,7 +630,12 @@ def guardar_informe_en_bd(registros: List[dict], nombre_archivo: str) -> str:
             r["empresa"],
             r["fecha"],
             r["menu"],
-            reincidencia
+            reincidencia,
+            total_persona,
+            total_empresa,
+            total_reservas,
+            total_si_consumieron,
+            total_no_consumieron,
         ])
 
     ws.update("A1", valores)
@@ -682,6 +646,7 @@ def guardar_informe_en_bd(registros: List[dict], nombre_archivo: str) -> str:
         pass
 
     return nombre_hoja
+
 
 # =========================
 # MAIN
@@ -713,7 +678,12 @@ if uploaded_file:
 
         if st.button("Guardar informe en la BD", type="primary"):
             with st.spinner("Guardando informe en Google Sheets..."):
-                nombre_hoja = guardar_informe_en_bd(registros, uploaded_file.name)
+                nombre_hoja = guardar_informe_en_bd(
+                    registros,
+                    uploaded_file.name,
+                    resultado
+                )
+
             st.success(f'Informe guardado en la hoja "{nombre_hoja}".')
 
     except Exception as e:
