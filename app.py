@@ -582,8 +582,6 @@ def guardar_informe_en_bd(registros: List[dict], nombre_archivo: str, resultado:
         total_por_empresa[empresa] = total_por_empresa.get(empresa, 0) + valor_unitario
 
     personas_ya_mostradas = set()
-    empresas_ya_mostradas = set()
-    totales_ya_mostrados = False
 
     valores = [[
         "Nombre completo",
@@ -592,16 +590,20 @@ def guardar_informe_en_bd(registros: List[dict], nombre_archivo: str, resultado:
         "Día que reservó",
         "Qué reservó",
         "Reincidencia",
-        "Total por persona",
-        "Total por empresa",
+        "Resumen por empresa",
+        "Total empresa",
         "Total reservas",
         "Total sí consumieron",
         "Total no consumieron"
     ]]
 
-    for r in registros:
+    empresas_ordenadas = sorted(
+        total_por_empresa.items(),
+        key=lambda x: (-x[1], x[0])
+    )
+
+    for i, r in enumerate(registros):
         key = clave_persona(r)
-        empresa = valor_texto(r["empresa"]) or "SIN CRUCE"
 
         if key not in personas_ya_mostradas:
             reincidencia = reincidencias.get(key, 1)
@@ -611,17 +613,17 @@ def guardar_informe_en_bd(registros: List[dict], nombre_archivo: str, resultado:
             reincidencia = ""
             total_persona = ""
 
-        if empresa not in empresas_ya_mostradas:
-            total_empresa = formatear_cop(total_por_empresa.get(empresa, 0))
-            empresas_ya_mostradas.add(empresa)
+        if i < len(empresas_ordenadas):
+            empresa_resumen = empresas_ordenadas[i][0]
+            total_empresa = formatear_cop(empresas_ordenadas[i][1])
         else:
+            empresa_resumen = ""
             total_empresa = ""
 
-        if not totales_ya_mostrados:
+        if i == 0:
             total_reservas = resultado["totalReservas"]
             total_si_consumieron = resultado["personasConsumieron"]
             total_no_consumieron = resultado["personasNoConsumieron"]
-            totales_ya_mostrados = True
         else:
             total_reservas = ""
             total_si_consumieron = ""
@@ -634,7 +636,7 @@ def guardar_informe_en_bd(registros: List[dict], nombre_archivo: str, resultado:
             r["fecha"],
             r["menu"],
             reincidencia,
-            total_persona,
+            empresa_resumen,
             total_empresa,
             total_reservas,
             total_si_consumieron,
