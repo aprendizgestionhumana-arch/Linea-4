@@ -640,21 +640,31 @@ def guardar_informe_en_bd(registros: List[dict], nombre_archivo: str) -> str:
     else:
         ws = sh.add_worksheet(title=nombre_hoja, rows=2000, cols=10)
 
+    # Contar reincidencias por persona
+    reincidencias = {}
+    for r in registros:
+        key = clave_persona(r)
+        reincidencias[key] = reincidencias.get(key, 0) + 1
+
     valores = [[
         "Nombre completo",
         "Cédula",
         "Empresa",
         "Día que reservó",
-        "Qué reservó"
+        "Qué reservó",
+        "Reincidencia"
     ]]
 
     for r in registros:
+        key = clave_persona(r)
+
         valores.append([
             r["usuario"],
             r["cedula"],
             r["empresa"],
             r["fecha"],
-            r["menu"]
+            r["menu"],
+            reincidencias.get(key, 1)
         ])
 
     ws.update("A1", valores)
